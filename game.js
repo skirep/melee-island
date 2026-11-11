@@ -48,6 +48,8 @@ function startGame(THREE,cast) {
     out vec4 fragColor;
     uniform sampler2D art;
     uniform float layer;
+    uniform vec2 poseDelta;
+    uniform float poseMix;
     uniform vec3 shotLight;
     uniform vec3 lamps[9];
     in vec3 color;
@@ -62,6 +64,12 @@ function startGame(THREE,cast) {
         fragColor=vec4(sky,1.);return;
       }
       vec4 pixel=texture(art,tex);
+      if(poseMix>0.){
+        vec4 other=texture(art,tex+poseDelta);
+        float alpha=mix(pixel.a,other.a,poseMix);
+        vec3 rgb=mix(pixel.rgb*pixel.a,other.rgb*other.a,poseMix)/max(alpha,.001);
+        pixel=vec4(rgb,alpha);
+      }
       if(pixel.a<.45)discard;
       vec3 tone=color*pixel.rgb;
       if(layer>.5){
@@ -89,7 +97,7 @@ function startGame(THREE,cast) {
   function material(art,layer) {
     return new THREE.RawShaderMaterial({
       vertexShader:vertex,fragmentShader:fragment,glslVersion:THREE.GLSL3,
-      uniforms:{...viewUniforms,art:{value:art},layer:{value:layer}},
+      uniforms:{...viewUniforms,art:{value:art},layer:{value:layer},poseDelta:{value:new THREE.Vector2()},poseMix:{value:0}},
       side:THREE.DoubleSide,depthTest:layer!==2,depthWrite:layer!==2
     });
   }
@@ -305,11 +313,13 @@ function startGame(THREE,cast) {
   const effectsMesh=mesh(new Float32Array(384),white,0,3,true);
   const skyMesh=mesh(new Float32Array(32*48),white,2,0,true);
   skyMesh.visible=false;
-  const spriteWidth=96,spriteHeight=148,columns=8,rows=7;
+  const spriteWidth=96,spriteHeight=148,columns=14;
+  const atlasScale=matchMedia('(pointer: coarse)').matches?.75:1;
+  const tileWidth=Math.round(spriteWidth*atlasScale),tileHeight=Math.round(spriteHeight*atlasScale);
   const animations={
-    idle:[0,4,4,true],walk:[4,8,12,true],run:[12,8,16,true],
-    jump:[20,6,12],aim:[26,4,9],shoot:[30,6,16],
-    wind:[36,4,9],slash:[40,4,15],hurt:[44,3,13],down:[47,4,12],talk:[51,5,10,true]
+    idle:[8,1.6,true],walk:[32,.8,true],run:[32,.54,true],
+    jump:[28,.62,false],aim:[16,.65,false],shoot:[34,.73,false],
+    wind:[8,.44,false],slash:[12,.42,false],hurt:[8,.28,false],down:[10,.43,false],talk:[12,.6,true]
   };
   const gunners=new Set([1,6,11]);
   const swordsmen=new Set([0,2,4,7,10]);
@@ -320,7 +330,15 @@ function startGame(THREE,cast) {
     for(const [i,[x,y]] of points.entries()) i?ctx.lineTo(x,y):ctx.moveTo(x,y);
     ctx.closePath();ctx.fill();
   }
-  function drawActorFrame(ctx,image,variant,state,frame) {
+  function smooth(t) {
+    return t*t*(3-2*t);
+  }
+  function pose(keys,progress) {
+    const index=Math.min(keys.length-2,Math.floor(progress*(keys.length-1)));
+    const t=smooth(progress*(keys.length-1)-index);
+    return keys[index]+(keys[index+1]-keys[index])*t;
+  }
+  function drawActorFrame(ctx,image,variant,state,progress) {
     const sourceX=variant%5*spriteWidth;
     const center=48,base=145,hip=86;
     const walk=state==='walk'||state==='run';
@@ -328,14 +346,15 @@ function startGame(THREE,cast) {
     const jump=state==='jump';
     const aiming=state==='aim'||state==='shoot';
     const slash=state==='slash', wind=state==='wind';
-    const wave=frame*Math.PI/4;
-    const breathing=state==='idle'?[0,-.7,-1.2,-.5][frame]:0;
-    const bob=walk?-Math.abs(Math.sin(wave))*(run?4:2):jump?[2,-2,-5,-5,-2,2][frame]:breathing;
-    const fall=state==='down'?[.16,.48,.78,1][frame]:0;
-    const recoil=state==='hurt'?[6,4,1][frame]:state==='shoot'?[7,5,3,2,1,0][frame]:0;
-    const lunge=slash?[1,7,5,1][frame]:0;
+    const wave=progress*Math.PI*2;
+    const breathing=state==='idle'?-.65+.65*Math.cos(wave):0;
+    const bob=walk?-Math.abs(Math.sin(wave))*(run?4:2):jump?pose([1,-2,-5,-5,-2,2.5],progress):breathing;
+    const fall=state==='down'?pose([0,.16,.48,.78,1],progress):0;
+    const recoil=state==='hurt'?pose([0,6,4,1,0],progress):
+      state==='shoot'?pose([0,8,6,3,2,1,0,0],progress):0;
+    const lunge=slash?pose([1,7,5,1,0],progress):0;
     const lean=run?Math.sin(wave)*.07:walk?Math.sin(wave)*.035:
-      aiming?-.035+recoil*.01:slash?-.02+lunge*.011:state==='talk'?Math.sin(frame*1.25)*.028:0;
+      aiming?-.035+recoil*.01:slash?-.02+lunge*.011:state==='talk'?Math.sin(wave)*.028:0;
     const part=(x,y,w,h)=>ctx.drawImage(image,sourceX+x,y,w,h,x,y,w,h);
     ctx.save();
     ctx.translate(center,base);
@@ -345,16 +364,23 @@ function startGame(THREE,cast) {
     if((walk||jump)&&!skirts.has(variant)) {
       for(const direction of [-1,1]) {
         const legX=direction<0?0:center;
-        const angle=walk?Math.cos(wave)*direction*(run?.145:.085):direction*[.025,.12,.18,.16,.08,.025][frame];
-        const lift=walk?Math.max(0,Math.sin(wave)*direction)*(run?9:5):[0,3,8,8,4,1][frame];
+        const angle=walk?Math.cos(wave)*direction*(run?.145:.085):direction*pose([.025,.12,.18,.16,.08,.025],progress);
+        const lift=walk?Math.max(0,Math.sin(wave)*direction)*(run?9:5):pose([0,3,8,8,4,0],progress);
         const joint=center+direction*9;
         ctx.save();ctx.translate(joint,hip-lift*.38);ctx.rotate(angle);ctx.scale(1,1-lift*.009);
         ctx.translate(-joint,-hip);
-        part(legX,hip-6,center,spriteHeight-hip+6);
+        const knee=115;
+        part(legX,hip-6,center,knee-hip+10);
+        ctx.translate(joint,knee);ctx.rotate(-direction*lift*.012);ctx.translate(-joint,-knee);
+        part(legX,knee,center,spriteHeight-knee);
         ctx.restore();
       }
       ctx.translate(0,bob);ctx.translate(center,hip);ctx.rotate(lean);ctx.translate(-center,-hip);
       part(0,0,spriteWidth,hip+3);
+    } else if(walk&&skirts.has(variant)) {
+      ctx.save();ctx.translate(center,hip);ctx.rotate(Math.sin(wave)*.042);
+      ctx.translate(-center,-hip);part(0,hip-3,spriteWidth,spriteHeight-hip+3);ctx.restore();
+      ctx.translate(0,bob);part(0,0,spriteWidth,hip+2);
     } else {
       ctx.translate(center+recoil*.45-lunge*.36,base+bob);
       ctx.rotate(lean);ctx.scale(1+Math.abs(bob)*.006,1+Math.abs(bob)*.003);
@@ -362,45 +388,68 @@ function startGame(THREE,cast) {
       part(0,0,spriteWidth,spriteHeight);
     }
     if(swordsmen.has(variant)) {
-      const angle=slash?[-1.24,-1.79,.75,1.25][frame]:wind?[-.26,-.63,-.91,-1.17][frame]:.26;
-      ctx.save();ctx.translate(27-lunge,77-(wind?frame*4:0));ctx.rotate(angle);
+      const angle=slash?pose([-1.17,-1.79,.75,1.25,.26],progress):wind?pose([.26,-.26,-.63,-.91,-1.17],progress):.26;
+      ctx.save();ctx.translate(27-lunge,77-(wind?progress*12:slash?(1-progress)*12:0));ctx.rotate(angle);
       polygon(ctx,'#2f2425',[[-2,8],[-3,-34],[-1,-49],[4,-40],[3,5],[6,7],[5,10],[-6,10]]);
       polygon(ctx,'#aeb4ba',[[-1,3],[-1,-35],[-1,-45],[2,-38],[1,3]]);
       polygon(ctx,'#cbb992',[[-5,5],[5,5],[5,8],[-5,8]]);
       ctx.restore();
     }
     if(gunners.has(variant)&&aiming) {
-      ctx.save();ctx.translate(center-recoil*.4,75-recoil);
-      ctx.rotate(-.14+recoil*.012);
+      const raise=state==='aim'?smooth(progress):1-smooth(Math.max(0,(progress-.62)/.38));
+      ctx.save();ctx.translate(center-recoil*.4,88-13*raise-recoil);
+      ctx.rotate(.64-.78*raise+recoil*.012);
       polygon(ctx,'#34282a',[[-15,-3],[-8,-8],[9,-8],[13,-2],[5,3],[4,9],[-3,9],[-7,3],[-15,2]]);
       polygon(ctx,'#969a98',[[-14,-5],[4,-6],[4,-2],[-14,-1]]);
       polygon(ctx,'#c09b72',[[2,0],[8,-1],[5,5],[4,8],[0,7]]);
-      if(state==='shoot'&&frame<2) {
+      if(state==='shoot'&&progress<.15) {
+        ctx.globalAlpha=1-progress/.15;
         polygon(ctx,'#ef985b',[[-14,-4],[-24,-7],[-28,-14],[-28,-7],[-38,-9],[-30,-3],[-39,1],[-28,1],[-25,7],[-22,2],[-14,0]]);
         polygon(ctx,'#ffedba',[[-14,-4],[-24,-5],[-30,-8],[-26,-2],[-31,1],[-23,0],[-14,-1]]);
+      }
+      if(state==='shoot'&&progress>.11&&progress<.72) {
+        const drift=(progress-.11)/.61;
+        ctx.globalAlpha=(1-drift)*.42;
+        for(let plume=0;plume<3;plume++) {
+          ctx.fillStyle=plume===1?'#b7a5a1':'#91858f';
+          ctx.beginPath();ctx.ellipse(-18-drift*20-plume*3,-4-drift*15+plume*2,
+            3+drift*4,1.6+drift*3,0,0,Math.PI*2);ctx.fill();
+        }
       }
       ctx.restore();
     }
     ctx.restore();
   }
   const sprites=Array.from({length:15},(_,variant)=>{
-    const atlas=makeCanvas(columns*spriteWidth,rows*spriteHeight);
+    const hostile=gunners.has(variant)||swordsmen.has(variant);
+    const offsets={};
+    let size=0;
+    for(const [state,[count]] of Object.entries(animations)) {
+      if(['run','jump','hurt','down'].includes(state)&&!hostile) continue;
+      if(['aim','shoot'].includes(state)&&!gunners.has(variant)) continue;
+      if(['wind','slash'].includes(state)&&!swordsmen.has(variant)) continue;
+      if(state==='talk'&&hostile) continue;
+      offsets[state]=size;size+=count;
+    }
+    const rows=Math.ceil(size/columns);
+    const atlas=makeCanvas(columns*tileWidth,rows*tileHeight);
     const ctx=atlas.getContext('2d');
     const image=cast[Math.floor(variant/5)];
-    for(const [state,[offset,count]] of Object.entries(animations)) {
+    for(const [state,offset] of Object.entries(offsets)) {
+      const [count,,loop]=animations[state];
       for(let frame=0;frame<count;frame++) {
-        const index=offset+frame,x=index%columns*spriteWidth,y=Math.floor(index/columns)*spriteHeight;
+        const index=offset+frame,x=index%columns*tileWidth,y=Math.floor(index/columns)*tileHeight;
         ctx.save();
-        ctx.beginPath();ctx.rect(x,y,spriteWidth,spriteHeight);ctx.clip();
-        ctx.translate(x,y);
-        drawActorFrame(ctx,image,variant,state,frame);
+        ctx.beginPath();ctx.rect(x,y,tileWidth,tileHeight);ctx.clip();
+        ctx.translate(x,y);ctx.scale(tileWidth/spriteWidth,tileHeight/spriteHeight);
+        drawActorFrame(ctx,image,variant,state,frame/(loop?count:count-1));
         ctx.restore();
       }
     }
     const art=texture(atlas);
     art.magFilter=THREE.LinearFilter;
     art.minFilter=THREE.LinearFilter;
-    return art;
+    return {art,rows,offsets};
   });
 
   const blade=$('blade'), overlay=blade.getContext('2d');
@@ -457,7 +506,7 @@ function startGame(THREE,cast) {
     pirates=starts.map(([x,z,variant,captain])=>({x,z,variant,captain,hp:captain?5:3,
       state:'idle',timer:0,phase:0,y:0,vy:0,hop:1.5+variant*.17}));
     for(const actor of villagers) {
-      actor.x=actor.homeX; actor.z=actor.homeZ; actor.state='idle'; actor.phase=actor.variant*.28;
+      actor.x=actor.homeX; actor.z=actor.homeZ; actor.state='idle'; actor.phase=actor.variant*.28; actor.transition=0; actor.from=null;
     }
     missionKey=null;
     message=''; messageTime=0;
@@ -545,7 +594,7 @@ function startGame(THREE,cast) {
   }
   function wound(target,damage,knockback) {
     target.hp=Math.max(0,target.hp-damage);
-    target.state=target.hp?'hurt':'down'; target.timer=target.hp?.28:0;
+    setActorState(target,target.hp?'hurt':'down'); target.timer=target.hp?.28:0;
     target.phase=0;
     const angle=Math.atan2(target.x-player.x,target.z-player.z);
     move(target,Math.sin(angle)*knockback,Math.cos(angle)*knockback,.23,target.y);
@@ -617,7 +666,7 @@ function startGame(THREE,cast) {
     if(target==='key') {missionKey.taken=true;sound('key');say('Ara obre la porta del far.');}
     if(target==='talk') {
       const villager=nearVillager();
-      villager.state='talk'; villager.phase=0;
+      setActorState(villager,'talk'); villager.phase=0;
       say(villager.name+' · '+villager.line);
     }
     if(target==='lighthouse') {
@@ -740,7 +789,7 @@ function startGame(THREE,cast) {
   });
 
   function updatePirate(enemy,dt) {
-    enemy.phase+=dt;
+    advanceActor(enemy,dt);
     if(enemy.y>0||enemy.vy>0) {
       enemy.vy-=12*dt;
       enemy.y=Math.max(0,enemy.y+enemy.vy*dt);
@@ -754,7 +803,7 @@ function startGame(THREE,cast) {
     const gunner=gunners.has(enemy.variant);
     if(enemy.state==='aim') {
       if(enemy.timer>0) return;
-      enemy.state='shoot';enemy.phase=0;enemy.timer=.73;
+      setActorState(enemy,'shoot');enemy.timer=.73;
       sound('distant');
       if(visible&&distance<8.5&&player.y<.86&&!player.running) {
         player.hp=Math.max(0,player.hp-9);
@@ -765,10 +814,10 @@ function startGame(THREE,cast) {
     }
     if(enemy.state==='wind') {
       if(enemy.timer>0) return;
-      enemy.state='slash'; enemy.timer=.42; enemy.phase=0;
+      setActorState(enemy,'slash');enemy.timer=.42;
       if(distance>2.06||!visible||player.y>.97) return;
       if(player.guard&&aimAt(enemy.x,enemy.z)>.23) {
-        sound('parry'); enemy.state='hurt'; enemy.timer=.42;
+        sound('parry'); setActorState(enemy,'hurt');enemy.timer=.42;
         return;
       }
       player.hp=Math.max(0,player.hp-(enemy.captain?22:15));
@@ -777,18 +826,20 @@ function startGame(THREE,cast) {
       return;
     }
     if(enemy.timer>0) return;
-    if(gunner&&visible&&distance<7.5) {
-      enemy.state='aim';enemy.timer=.65;enemy.phase=0;
+    if(enemy.y>0||enemy.vy>0) {
+      if(visible&&distance>.001) move(enemy,dx/distance*2.45*dt,dz/distance*2.45*dt,.24,enemy.y);
+    } else if(gunner&&visible&&distance<7.5) {
+      setActorState(enemy,'aim');enemy.timer=.65;
     } else if(visible&&distance<1.66) {
-      enemy.state='wind'; enemy.timer=enemy.captain?.42:.57; enemy.phase=0;
+      setActorState(enemy,'wind');enemy.timer=enemy.captain?.42:.57;
     } else if(visible) {
       if(distance>3.3&&distance<6.3&&enemy.hop<0) {
-        enemy.vy=3.7;enemy.hop=3.9;enemy.phase=0;
+        enemy.vy=3.7;enemy.hop=3.9;
       }
-      enemy.state=enemy.vy||enemy.y?'jump':distance>3.4?'run':'walk';
+      setActorState(enemy,enemy.vy?'jump':distance>3.4?'run':'walk');
       const speed=enemy.state==='run'?3.25:enemy.captain?2.45:1.85;
       move(enemy,dx/distance*speed*dt,dz/distance*speed*dt,.24,enemy.y);
-    } else enemy.state='idle';
+    } else setActorState(enemy,'idle');
   }
   function update(dt) {
     const p=player, down=(...codes)=>codes.some(code=>keys.has(code));
@@ -855,19 +906,46 @@ function startGame(THREE,cast) {
     $('flash').style.opacity=mode==='play'?p.damage*1.4:0;
   }
 
+  const gait=state=>state==='walk'||state==='run';
+  function setActorState(actor,state) {
+    if(actor.state===state) return;
+    actor.from={state:actor.state,phase:actor.phase};
+    const continuous=gait(actor.state)&&gait(state);
+    actor.phase=continuous?actor.phase%animations[actor.state][1]/animations[actor.state][1]*animations[state][1]:0;
+    actor.transition=state==='shoot'||state==='hurt'?.055:.12;
+    actor.state=state;
+  }
+  function advanceActor(actor,dt) {
+    actor.phase+=dt;
+    actor.transition=Math.max(0,(actor.transition||0)-dt);
+    if(actor.from&&gait(actor.from.state)) actor.from.phase+=dt;
+  }
+  function animationFrame(atlas,state,phase) {
+    const [count,duration,loop]=animations[state];
+    const sample=loop?(phase%duration)/duration*count:Math.min(1,phase/duration)*(count-1);
+    const frame=Math.floor(sample);
+    const next=loop?(frame+1)%count:Math.min(frame+1,count-1);
+    return [atlas.offsets[state]+frame,atlas.offsets[state]+next,sample-frame];
+  }
   function sprite(mesh,actor) {
-    const [offset,frames,fps,loop]=animations[actor.state];
-    const tick=Math.floor(actor.phase*fps);
-    const index=offset+(loop?tick%frames:Math.min(tick,frames-1));
-    const u=(index%columns+.005)/columns,v=(Math.floor(index/columns)+.004)/rows;
+    const atlas=sprites[actor.variant];
+    const [frame,next,fraction]=animationFrame(atlas,actor.state,actor.phase);
+    const transitioning=actor.transition>0&&actor.from;
+    const other=transitioning?animationFrame(atlas,actor.from.state,actor.from.phase)[0]:next;
+    const u=(frame%columns+.008)/columns,v=(Math.floor(frame/columns)+.006)/atlas.rows;
+    const uniforms=actorMeshes[actor.variant].material.uniforms;
+    uniforms.poseDelta.value.set((other%columns-frame%columns)/columns,
+      (Math.floor(other/columns)-Math.floor(frame/columns))/atlas.rows);
+    const duration=actor.state==='shoot'||actor.state==='hurt'?.055:.12;
+    uniforms.poseMix.value=transitioning?smooth(actor.transition/duration):fraction;
     const width=actor.captain?1.56:1.36,height=actor.captain?2.53:2.16;
     const dx=Math.cos(player.yaw)*width/2,dz=-Math.sin(player.yaw)*width/2;
     const x=actor.x,z=actor.z,y=(actor.y||0)-height*(3/spriteHeight);
-    const w=.99/columns,h=.992/rows;
+    const w=.984/columns,h=.988/atlas.rows;
     quad(mesh,[x-dx,y+height,z-dz],[x+dx,y+height,z+dz],[x+dx,y,z+dz],[x-dx,y,z-dz],
       actor.state==='hurt'?[1,.71,.65]:[1,1,1],[[u,v],[u+w,v],[u+w,v+h],[u,v+h]]);
   }
-  const actorMeshes=sprites.map(art=>mesh(new Float32Array(48),art,0,2,true));
+  const actorMeshes=sprites.map(({art})=>mesh(new Float32Array(48),art,0,2,true));
   function spark(mesh,x,y,z,size,color) {
     const a=Math.cos(player.yaw)*size,b=-Math.sin(player.yaw)*size;
     quad(mesh,[x-a,y,z-b],[x,y+size,z],[x+a,y,z+b],[x,y-size,z],rgb(color));
@@ -1035,16 +1113,16 @@ function startGame(THREE,cast) {
     previous=now;elapsed+=dt;
     if(mode==='play') update(dt);
     for(const actor of villagers) {
-      actor.phase+=dt;
+      advanceActor(actor,dt);
       if(actor.state==='talk') {
-        if(actor.phase>2.3) actor.state='idle';
+        if(actor.phase>2.3) setActorState(actor,'idle');
       } else if(mode==='play') {
         const cycle=(elapsed*.36+actor.variant*.63)%5;
         const destination=actor.homeX+Math.sin(cycle*Math.PI/2)*.95;
         if(cycle<4&&Math.abs(destination-actor.x)>.06) {
-          actor.state='walk';
+          setActorState(actor,'walk');
           move(actor,Math.sign(destination-actor.x)*dt*.7,0,.2,0);
-        } else actor.state='idle';
+        } else setActorState(actor,'idle');
       }
     }
     render();
