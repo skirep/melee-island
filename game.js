@@ -37,7 +37,6 @@ function startGame(THREE) {
     out vec4 fragColor;
     uniform sampler2D art;
     uniform float layer;
-    uniform vec3 eye;
     uniform vec3 shotLight;
     uniform vec3 lamps[9];
     in vec3 color;
@@ -46,8 +45,7 @@ function startGame(THREE) {
     in vec3 surface;
     void main(){
       if(layer>1.5){
-        vec3 ray=surface-eye;
-        float elevation=atan(ray.y,length(ray.xz));
+        float elevation=atan(surface.y-1.6,84.);
         vec3 sky=texture(art,vec2(tex.x,clamp(.71-elevation*1.35,0.,1.))).rgb*color;
         sky=mix(sky,vec3(.065,.058,.153),smoothstep(.46,.98,elevation));
         fragColor=vec4(sky,1.);return;
