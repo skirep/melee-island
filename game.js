@@ -1,14 +1,25 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const canvas = $('view');
-import('https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js')
-  .then(THREE=>startGame(THREE))
+function loadImage(path) {
+  return new Promise((resolve,reject)=>{
+    const image=new Image();
+    image.onload=()=>resolve(image);
+    image.onerror=()=>reject(new Error('No s’ha pogut carregar '+path));
+    image.src=path;
+  });
+}
+Promise.all([
+  import('https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js'),
+  Promise.all([1,2,3].map(row=>loadImage('./cast-'+row+'.svg')))
+])
+  .then(([THREE,cast])=>startGame(THREE,cast))
   .catch(error=>{
     console.error(error);
     $('help').textContent='No s’ha pogut iniciar el motor 3D. Comprova la connexió i activa WebGL 2.';
   });
 
-function startGame(THREE) {
+function startGame(THREE,cast) {
   const renderer=new THREE.WebGLRenderer({canvas,antialias:false,alpha:false});
   renderer.setClearColor(new THREE.Color().setRGB(.078,.091,.17,THREE.SRGBColorSpace));
   const scene=new THREE.Scene();
@@ -294,180 +305,102 @@ function startGame(THREE) {
   const effectsMesh=mesh(new Float32Array(384),white,0,3,true);
   const skyMesh=mesh(new Float32Array(32*48),white,2,0,true);
   skyMesh.visible=false;
-  const palettes=[
-    ['#8e4052','#d06b60','#d08c63','#ecc49a','#49596f','#deb06e'],
-    ['#355269','#528d8f','#aa6655','#d89973','#46364d','#9fbdb7'],
-    ['#6d4c7e','#a3779e','#a86859','#e2a67d','#485470','#efd08d'],
-    ['#684252','#a35a66','#a16952','#d2a074','#373750','#dbb473'],
-    ['#415f55','#7b9c69','#a26651','#df9b72','#3a4658','#dba361'],
-    ['#8e633d','#cca56e','#714536','#b57757','#4a4457','#e7c989'],
-    ['#435574','#7694b6','#b4745b','#dda078','#3b3a62','#c6d6e1'],
-    ['#77364e','#ae5768','#b3795d','#eeaa78','#252e49','#f3cd75'],
-    ['#765633','#a48052','#945742','#d8916f','#3b3b50','#e0bc89'],
-    ['#457474','#71a59a','#805446','#cc886a','#3b455d','#c6dfcc'],
-    ['#864a35','#bc744d','#a15c4b','#db9069','#56475d','#d9c07e'],
-    ['#565073','#8883ae','#ad6b57','#e8a686','#3b4264','#d8bad3'],
-    ['#8a6c4a','#c8a77e','#945944','#dca076','#574454','#eed3a1'],
-    ['#445459','#6d8a81','#8a5449','#ca8b6c','#4c4057','#b5cdb6'],
-    ['#6f495c','#9a687e','#a46555','#d39781','#4a445e','#e2c894']
-  ];
-  const spriteSize=96, columns=8;
+  const spriteWidth=96,spriteHeight=148,columns=8,rows=7;
   const animations={
     idle:[0,4,4,true],walk:[4,8,12,true],run:[12,8,16,true],
     jump:[20,6,12],aim:[26,4,9],shoot:[30,6,16],
     wind:[36,4,9],slash:[40,4,15],hurt:[44,3,13],down:[47,4,12],talk:[51,5,10,true]
   };
-  const rows=7;
   const gunners=new Set([1,6,11]);
-  let ink;
+  const swordsmen=new Set([0,2,4,7,10]);
+  const skirts=new Set([3,12,14]);
   function polygon(ctx,color,points) {
     ctx.fillStyle=color;
     ctx.beginPath();
     for(const [i,[x,y]] of points.entries()) i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-    ctx.closePath(); ctx.fill();
+    ctx.closePath();ctx.fill();
   }
-  function pirate(colors,state,frame,variant) {
-    const [coat,trim,skin,light,pants,metal]=colors;
-    const outline='#232036', linen='#e2c3a5', leather='#3e2a42';
-    const locomotion=state==='walk'||state==='run';
-    const pace=frame*Math.PI/4;
-    const running=state==='run';
-    const airborne=state==='jump';
-    const shot=state==='shoot';
-    const aiming=state==='aim'||shot;
-    const bob=locomotion?Math.round(-Math.abs(Math.cos(pace))*(running?3:1.5)):
-      state==='idle'?[0,-1,-1,0][frame]:airborne?[1,-1,-2,-2,-1,1][frame]:0;
-    ink.translate(32,58);
-    ink.scale([.94,1.08,.83,1.1,1.16,.86,1,.98,1.12,.83,1.14,.88,1,.91,.92][variant],
-      [1,.94,1.04,.98,1.02,.86,1.07,1.05,.92,.95,1,.99,1.03,.86,.9][variant]);
-    ink.translate(-32,-58);
-    const lunge=state==='slash'?[2,7,5,1][frame]:0;
-    const recoil=state==='hurt'?[4,3,1][frame]:shot?[6,5,3,2,1,0][frame]:0;
-    const fall=state==='down'?[.16,.48,.8,1][frame]:0;
-    ink.translate(32,57);
-    ink.scale(1-fall*.38,1-fall*.26);
-    ink.rotate(-fall*1.43);
-    ink.translate(-32,-57);
-    const rect=(x,y,w,h,c)=>{ink.fillStyle=c;ink.fillRect(Math.round(x),Math.round(y),w,h);};
-    function shape(color,points) {polygon(ink,color,points);}
-    function seam(color,points,width=1) {
-      ink.strokeStyle=color; ink.lineWidth=width; ink.beginPath();
-      points.forEach(([x,y],i)=>i?ink.lineTo(x,y):ink.moveTo(x,y)); ink.stroke();
-    }
-    for(const side of [-1,1]) {
-      const cycle=pace+(side===1?Math.PI:0);
-      const reach=locomotion?Math.sin(cycle)*(running?8:4):airborne?side*5:0;
-      const lift=locomotion?Math.max(0,Math.cos(cycle))*(running?7:4):
-        airborne?[1,5,9,8,5,0][frame]+side:0;
-      const hip=32+side*5, knee=hip+reach*.5, ankle=hip+reach;
-      const top=39+bob, foot=55-lift;
-      shape(outline,[[hip-5,top],[hip+5,top],[knee+4,46-lift*.33],[ankle+4,foot+2],[ankle-5,foot+2],[knee-4,46-lift*.33]]);
-      shape(pants,[[hip-3,top],[hip+3,top],[knee+2,46-lift*.33],[ankle+2,foot],[ankle-3,foot]]);
-      seam(trim,[[hip-2,top+2],[knee-2,46-lift*.33],[ankle-2,foot-3]]);
-      shape(leather,[[ankle-4,foot-5],[ankle+3,foot-5],[ankle+5,foot+1],[ankle+4,foot+3],[ankle-6,foot+3]]);
-      rect(ankle-4,foot-4,7,1,trim); rect(ankle-5,foot+2,9,1,outline);
-      rect(ankle-4,foot-2,2,1,metal);
-    }
-    ink.translate(recoil-lunge*.45,bob);
-    if(running||airborne) {
-      ink.translate(32,39);
-      ink.rotate(running?Math.sin(pace)*.085:Math.sin(frame/5*Math.PI)*.09);
-      ink.translate(-32,-39);
-    }
-    shape(outline,[[21,23],[29,20],[37,20],[44,25],[47,44],[41,48],[34,46],[24,49],[18,44]]);
-    shape(coat,[[22,24],[29,22],[37,22],[42,26],[45,43],[40,46],[34,44],[24,47],[20,43]]);
-    shape(trim,[[25,24],[29,24],[30,31],[26,43],[22,44],[23,34]]);
-    shape(linen,[[28,23],[37,22],[38,30],[34,37],[30,31]]);
-    rect(22,37,21,4,outline);rect(31,37,5,4,metal);rect(32,38,3,2,leather);
-    rect(25,12,16,13,outline);rect(26,13,14,10,skin);rect(28,13,10,4,light);
-    rect(29,17,2,2,outline);rect(35,17,3,2,outline);
-    rect(33,18,2,3,light);rect(29,22,9,3,leather);
-    shape(outline,[[17,13],[19,10],[24,11],[27,4],[36,3],[41,10],[47,9],[47,14],[42,17],[24,16]]);
-    shape(coat,[[19,12],[25,13],[28,6],[35,5],[40,12],[45,11],[43,15],[25,15]]);
-    rect(28,7,9,1,trim);rect(29,12,7,2,metal);rect(40,17,2,4,metal);
-    if([4,5,8,9,12,13].includes(variant)) {
-      shape(outline,[[21,14],[22,8],[27,5],[38,5],[43,10],[43,15]]);
-      shape(trim,[[22,14],[23,9],[29,7],[38,7],[41,12],[41,14]]);
-      rect(24,13,17,2,coat);
-    }
-    if([0,2,5,7,10,13].includes(variant)) {
-      shape(leather,[[26,20],[29,21],[35,21],[40,19],[39,24],[35,28],[30,26],[27,24]]);
-      rect(30,23,6,1,trim);
-    }
-    if([7,11].includes(variant)) {
-      shape(metal,[[37,7],[39,2],[44,0],[44,5],[40,10]]);
-      rect(28,17,5,2,outline);
-    }
-    if([3,6,9,12,14].includes(variant)) {
-      shape(metal,[[27,25],[39,25],[39,43],[34,46],[25,43]]);
-      shape(trim,[[29,26],[37,26],[36,40],[34,42],[28,40]]);
-    }
-    if([3,9,12,14].includes(variant)) {
-      shape(leather,[[24,13],[27,11],[27,24],[25,30],[22,27]]);
-      shape(leather,[[40,13],[43,14],[45,27],[41,29],[39,23]]);
-      rect(24,21,2,5,trim);rect(41,18,1,7,trim);
-    }
-    if([2,4,8,10,13].includes(variant)) {
-      shape(trim,[[25,13],[41,13],[41,16],[29,16],[23,21],[21,19]]);
-      rect(26,14,12,1,metal);
-    }
-    if([0,6,7,11].includes(variant)) {
-      seam(metal,[[20,12],[25,14],[29,6],[35,6],[41,13],[45,11]]);
-      seam(leather,[[27,16],[39,20]]);
-    }
-    for(const y of [28,32,35,42]) {
-      rect(24,y,2,1,metal); rect(40,y,2,1,metal);
-    }
-    seam(leather,[[24,28],[22,37],[23,44]]);
-    seam(trim,[[41,25],[40,33],[43,43]]);
-    rect(32,20,4,1,light); rect(28,16,3,1,leather);
-    if(frame!==3||state!=='idle') rect(29,17,1,1,'#f5d9aa');
-    rect(26,19,1,2,metal); rect(38,22,2,1,skin);
-    const armed=[0,1,2,4,6,7,10,11].includes(variant);
-    const wind=state==='wind'?(frame+1)*2:0;
-    const gesture=state==='talk'?[0,3,7,4,2][frame]:0;
-    if(gesture>0) rect(32,21,3,2,outline);
-    const swing=locomotion?Math.sin(pace)*(running?6:3):0;
-    const armX=19-lunge*1.7-gesture*.55+swing*.45+(aiming?3:0);
-    const armY=34-wind-lunge-gesture+swing-(airborne?6:0)-(aiming?8:0);
-    shape(outline,[[23,24],[26,29],[armX+3,armY+4],[armX-3,armY+3],[armX-3,armY-2]]);
-    rect(Math.round(armX)-2,armY,5,4,skin);
-    shape(trim,[[41,25],[44,26],[46,35],[45,39],[41,38],[40,29]]);
-    if(aiming || gunners.has(variant)) {
-      const x=Math.round(armX), y=Math.round(armY);
-      shape(outline,[[x-6,y-5],[x+6,y-6],[x+8,y-2],[x+1,y],[x-1,y+5],[x-5,y+4]]);
-      shape(leather,[[x-4,y-3],[x+4,y-3],[x-2,y+4],[x-5,y+3]]);
-      rect(x-7,y-5,13,2,'#9eabb9');
-      rect(x-7,y-4,3,3,metal);
-      if(shot&&frame<2) {
-        shape('#ed854b',[[x-6,y-4],[x-12,y-6],[x-18,y-12],[x-16,y-5],[x-22,y-3],[x-14,y],[x-15,y+4],[x-8,y]]);
-        shape('#fff0a3',[[x-7,y-4],[x-15,y-7],[x-12,y-4],[x-17,y-2],[x-11,y-1]]);
+  function drawActorFrame(ctx,image,variant,state,frame) {
+    const sourceX=variant%5*spriteWidth;
+    const center=48,base=145,hip=86;
+    const walk=state==='walk'||state==='run';
+    const run=state==='run';
+    const jump=state==='jump';
+    const aiming=state==='aim'||state==='shoot';
+    const slash=state==='slash', wind=state==='wind';
+    const wave=frame*Math.PI/4;
+    const breathing=state==='idle'?[0,-.7,-1.2,-.5][frame]:0;
+    const bob=walk?-Math.abs(Math.sin(wave))*(run?4:2):jump?[2,-2,-5,-5,-2,2][frame]:breathing;
+    const fall=state==='down'?[.16,.48,.78,1][frame]:0;
+    const recoil=state==='hurt'?[6,4,1][frame]:state==='shoot'?[7,5,3,2,1,0][frame]:0;
+    const lunge=slash?[1,7,5,1][frame]:0;
+    const lean=run?Math.sin(wave)*.07:walk?Math.sin(wave)*.035:
+      aiming?-.035+recoil*.01:slash?-.02+lunge*.011:state==='talk'?Math.sin(frame*1.25)*.028:0;
+    const part=(x,y,w,h)=>ctx.drawImage(image,sourceX+x,y,w,h,x,y,w,h);
+    ctx.save();
+    ctx.translate(center,base);
+    ctx.rotate(fall*1.46);
+    ctx.scale(1-fall*.44,1-fall*.42);
+    ctx.translate(-center-fall*7,-base+fall*21);
+    if((walk||jump)&&!skirts.has(variant)) {
+      for(const direction of [-1,1]) {
+        const legX=direction<0?0:center;
+        const angle=walk?Math.cos(wave)*direction*(run?.145:.085):direction*[.025,.12,.18,.16,.08,.025][frame];
+        const lift=walk?Math.max(0,Math.sin(wave)*direction)*(run?9:5):[0,3,8,8,4,1][frame];
+        const joint=center+direction*9;
+        ctx.save();ctx.translate(joint,hip-lift*.38);ctx.rotate(angle);ctx.scale(1,1-lift*.009);
+        ctx.translate(-joint,-hip);
+        part(legX,hip-6,center,spriteHeight-hip+6);
+        ctx.restore();
       }
-    } else if(armed){
-      const x=Math.round(armX), y=Math.round(armY);
-      const tip=[x-5-lunge*1.5,y-18+wind*1.6+lunge*1.4];
-      shape(outline,[[x+2,y+4],[x-3,y+2],[tip[0]-2,tip[1]],[tip[0]+1,tip[1]-3],[x+1,y-3]]);
-      shape('#bad0db',[[x-2,y-1],[tip[0],tip[1]-2],[tip[0]+2,tip[1]+2],[x+1,y-2]]);
-      rect(x-4,y-2,8,2,metal);
+      ctx.translate(0,bob);ctx.translate(center,hip);ctx.rotate(lean);ctx.translate(-center,-hip);
+      part(0,0,spriteWidth,hip+3);
+    } else {
+      ctx.translate(center+recoil*.45-lunge*.36,base+bob);
+      ctx.rotate(lean);ctx.scale(1+Math.abs(bob)*.006,1+Math.abs(bob)*.003);
+      ctx.translate(-center,-base);
+      part(0,0,spriteWidth,spriteHeight);
     }
+    if(swordsmen.has(variant)) {
+      const angle=slash?[-1.24,-1.79,.75,1.25][frame]:wind?[-.26,-.63,-.91,-1.17][frame]:.26;
+      ctx.save();ctx.translate(27-lunge,77-(wind?frame*4:0));ctx.rotate(angle);
+      polygon(ctx,'#2f2425',[[-2,8],[-3,-34],[-1,-49],[4,-40],[3,5],[6,7],[5,10],[-6,10]]);
+      polygon(ctx,'#aeb4ba',[[-1,3],[-1,-35],[-1,-45],[2,-38],[1,3]]);
+      polygon(ctx,'#cbb992',[[-5,5],[5,5],[5,8],[-5,8]]);
+      ctx.restore();
+    }
+    if(gunners.has(variant)&&aiming) {
+      ctx.save();ctx.translate(center-recoil*.4,75-recoil);
+      ctx.rotate(-.14+recoil*.012);
+      polygon(ctx,'#34282a',[[-15,-3],[-8,-8],[9,-8],[13,-2],[5,3],[4,9],[-3,9],[-7,3],[-15,2]]);
+      polygon(ctx,'#969a98',[[-14,-5],[4,-6],[4,-2],[-14,-1]]);
+      polygon(ctx,'#c09b72',[[2,0],[8,-1],[5,5],[4,8],[0,7]]);
+      if(state==='shoot'&&frame<2) {
+        polygon(ctx,'#ef985b',[[-14,-4],[-24,-7],[-28,-14],[-28,-7],[-38,-9],[-30,-3],[-39,1],[-28,1],[-25,7],[-22,2],[-14,0]]);
+        polygon(ctx,'#ffedba',[[-14,-4],[-24,-5],[-30,-8],[-26,-2],[-31,1],[-23,0],[-14,-1]]);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
   }
-  const sprites=palettes.map((palette,variant)=>{
-    const atlas=makeCanvas(columns*spriteSize,rows*spriteSize);
-    ink=atlas.getContext('2d');
+  const sprites=Array.from({length:15},(_,variant)=>{
+    const atlas=makeCanvas(columns*spriteWidth,rows*spriteHeight);
+    const ctx=atlas.getContext('2d');
+    const image=cast[Math.floor(variant/5)];
     for(const [state,[offset,count]] of Object.entries(animations)) {
       for(let frame=0;frame<count;frame++) {
-        const index=offset+frame;
-        ink.save();
-        ink.beginPath();
-        ink.rect(index%columns*spriteSize,Math.floor(index/columns)*spriteSize,spriteSize,spriteSize);
-        ink.clip();
-        ink.translate(index%columns*spriteSize,Math.floor(index/columns)*spriteSize);
-        ink.scale(1.5,1.5);
-        pirate(palette,state,frame,variant);
-        ink.restore();
+        const index=offset+frame,x=index%columns*spriteWidth,y=Math.floor(index/columns)*spriteHeight;
+        ctx.save();
+        ctx.beginPath();ctx.rect(x,y,spriteWidth,spriteHeight);ctx.clip();
+        ctx.translate(x,y);
+        drawActorFrame(ctx,image,variant,state,frame);
+        ctx.restore();
       }
     }
-    return texture(atlas);
+    const art=texture(atlas);
+    art.magFilter=THREE.LinearFilter;
+    art.minFilter=THREE.LinearFilter;
+    return art;
   });
 
   const blade=$('blade'), overlay=blade.getContext('2d');
@@ -478,16 +411,45 @@ function startGame(THREE) {
     [26,25,6,false],[7,38,10,false],[26,38,11,false]
   ];
   const villagers=[
-    [11.2,14.2,3,'La tavernera','El capità és a la pujada del far. Alça el sabre quan vegis que ell prepara el cop.'],
+    [11.2,14.2,3,'La tavernera','La capitana és a la pujada del far. Alça el sabre quan vegis que prepara el cop.'],
     [14,5.6,5,'El pescador','Quan el far calla, el mar s’empassa les barques.'],
     [19.1,12.7,8,'L’estibador','Pots saltar per damunt de les caixes baixes del moll.'],
     [11,24.1,9,'La cartògrafa','Segueix el carrer empedrat cap al nord.'],
     [22.4,20.2,12,'La cuinera','Avui la sopa de peix va a compte de qui encengui el far.'],
-    [7.2,26.3,13,'El boter','He amagat els barrils bons. Els altres ja els trobarà el capità.'],
-    [22.8,41.5,14,'La faronera','El capità em va robar la clau. Recupera-la i obre la porta del far.']
+    [7.2,26.3,13,'El boter','He amagat els barrils bons. Els altres ja els trobarà la capitana.'],
+    [22.8,41.5,14,'La faronera','La capitana em va robar la clau. Recupera-la i obre la porta del far.']
   ].map(([x,z,variant,name,line])=>({x,z,variant,name,line,homeX:x,homeZ:z,state:'idle',phase:variant*.28}));
   let player, pirates, mode='title', missionKey, previous=0, elapsed=0, message='', messageTime=0;
   let audio, surfGain, rightButton=false;
+  const touch={enabled:matchMedia('(pointer: coarse)').matches,x:0,y:0,stick:null,look:null,guard:null};
+  const touchPanel=$('touch'), stick=$('stick'), knob=$('stick-knob');
+  document.body.classList.toggle('touch-play',touch.enabled);
+  function enableTouch() {
+    touch.enabled=true;
+    document.body.classList.add('touch-play');
+  }
+  function setStick(event) {
+    const bounds=stick.getBoundingClientRect(), radius=bounds.width*.34;
+    const x=(event.clientX-bounds.left-bounds.width/2)/radius;
+    const y=(event.clientY-bounds.top-bounds.height/2)/radius;
+    const length=Math.hypot(x,y), cap=Math.max(1,length);
+    const strength=Math.max(0,Math.min(1,(length-.1)/.9));
+    touch.x=length?x/length*strength:0;
+    touch.y=length?y/length*strength:0;
+    knob.style.translate=(x/cap*radius)+'px '+(y/cap*radius)+'px';
+  }
+  function clearTouch() {
+    touch.stick=touch.look=touch.guard=null;touch.x=touch.y=0;
+    knob.style.translate='';
+    $('touch-guard').removeAttribute('data-held');
+  }
+  function jump() {
+    if(player.vy===0) {player.vy=5.4;sound('jump');}
+  }
+  function look(dx,dy,sensitivity) {
+    player.yaw+=dx*sensitivity;
+    player.pitch=Math.max(-.8,Math.min(.8,player.pitch-dy*sensitivity));
+  }
   function reset() {
     player={x:16.5,z:7.3,y:0,vy:0,yaw:0,pitch:.018,hp:100,attack:0,queued:false,
       guard:false,phase:0,step:0,damage:0,weapon:'sword',swap:0,
@@ -589,7 +551,7 @@ function startGame(THREE) {
     move(target,Math.sin(angle)*knockback,Math.cos(angle)*knockback,.23,target.y);
     if(target.captain&&!target.hp) {
       missionKey={x:target.x,z:target.z,taken:false};
-      say('El capità ha deixat caure la clau.');
+      say('La capitana ha deixat caure la clau.');
     }
   }
   function attack() {
@@ -659,12 +621,13 @@ function startGame(THREE) {
       say(villager.name+' · '+villager.line);
     }
     if(target==='lighthouse') {
-      if(!missionKey?.taken) say('La porta és tancada. El capità té la clau.');
+      if(!missionKey?.taken) say('La porta és tancada. La capitana té la clau.');
       else {sound('bell');show('win');}
     }
   }
   function show(next) {
     mode=next; keys.clear(); rightButton=false;
+    clearTouch();touchPanel.hidden=next!=='play';
     if(next!=='play'&&surfGain) surfGain.gain.setTargetAtTime(0,audio.currentTime,.12);
     $('veil').removeAttribute('data-cover');
     $('veil').hidden=next==='play'; $('hud').hidden=next!=='play';
@@ -675,6 +638,7 @@ function startGame(THREE) {
     $('play').textContent=next==='pause'?'Continua':'Torna a jugar';
   }
   $('play').disabled=false;
+  $('play').addEventListener('pointerdown',e=>{if(e.pointerType==='touch') enableTouch();});
   $('play').addEventListener('click',()=>{
     if(mode!=='pause') reset();
     $('help').textContent='';
@@ -685,6 +649,7 @@ function startGame(THREE) {
       audio.resume().catch(()=>{});
       startSurf();
     }
+    if(touch.enabled) return;
     try {canvas.requestPointerLock?.()?.catch(()=>say('Pots girar amb les fletxes esquerra i dreta.'));} catch {
       say('Pots girar amb les fletxes esquerra i dreta.');
     }
@@ -697,11 +662,10 @@ function startGame(THREE) {
   });
   document.addEventListener('mousemove',e=>{
     if(mode!=='play'||document.pointerLockElement!==canvas) return;
-    player.yaw+=e.movementX*.0026;
-    player.pitch=Math.max(-.8,Math.min(.8,player.pitch-e.movementY*.0026));
+    look(e.movementX,e.movementY,.0026);
   });
   canvas.addEventListener('mousedown',e=>{
-    if(mode!=='play') return;
+    if(mode!=='play'||touch.enabled&&e.sourceCapabilities?.firesTouchEvents) return;
     if(e.button===2) {rightButton=true;player.guard=player.weapon==='sword'&&player.attack===0;}
     if(e.button===0) attack();
   });
@@ -720,9 +684,60 @@ function startGame(THREE) {
     if(e.code==='KeyR') reloadShotgun();
     if(e.code==='KeyF') attack();
     if(e.code==='KeyE') interact();
-    if(e.code==='Space'&&player.vy===0) {player.vy=5.4;sound('jump');}
+    if(e.code==='Space') jump();
   });
   document.addEventListener('keyup',e=>keys.delete(e.code));
+  stick.addEventListener('pointerdown',e=>{
+    if(mode!=='play'||touch.stick!==null) return;
+    e.preventDefault();touch.stick=e.pointerId;
+    stick.setPointerCapture(e.pointerId);setStick(e);
+  });
+  stick.addEventListener('pointermove',e=>{
+    if(touch.stick===e.pointerId) setStick(e);
+  });
+  canvas.addEventListener('pointerdown',e=>{
+    if(mode!=='play'||e.pointerType!=='touch'||touch.look!==null) return;
+    e.preventDefault();enableTouch();touch.look=e.pointerId;
+    touch.lookX=e.clientX;touch.lookY=e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(touch.look!==e.pointerId) return;
+    look(e.clientX-touch.lookX,e.clientY-touch.lookY,.0048);
+    touch.lookX=e.clientX;touch.lookY=e.clientY;
+  });
+  const guardButton=$('touch-guard');
+  guardButton.addEventListener('pointerdown',e=>{
+    if(mode!=='play'||touch.guard!==null) return;
+    e.preventDefault();touch.guard=e.pointerId;
+    guardButton.setPointerCapture(e.pointerId);guardButton.setAttribute('data-held','');
+    player.guard=player.weapon==='sword'&&player.attack===0;
+  });
+  for(const event of ['pointerup','pointercancel','lostpointercapture']) {
+    stick.addEventListener(event,e=>{
+      if(touch.stick!==e.pointerId) return;
+      touch.stick=null;touch.x=touch.y=0;knob.style.translate='';
+    });
+    canvas.addEventListener(event,e=>{if(touch.look===e.pointerId) touch.look=null;});
+    guardButton.addEventListener(event,e=>{
+      if(touch.guard!==e.pointerId) return;
+      touch.guard=null;guardButton.removeAttribute('data-held');
+    });
+  }
+  for(const [name,action] of Object.entries({
+    attack,jump,interact,reload:reloadShotgun,pause:()=>show('pause'),
+    swap:()=>equip(player.weapon==='sword'?'shotgun':'sword')
+  })) {
+    const button=$('touch-'+name);
+    button.addEventListener('pointerdown',e=>{
+      if(mode!=='play') return;
+      e.preventDefault();action();
+    });
+    button.addEventListener('click',e=>{if(!e.detail&&mode==='play') action();});
+  }
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden&&mode==='play') show('pause');
+  });
 
   function updatePirate(enemy,dt) {
     enemy.phase+=dt;
@@ -778,13 +793,13 @@ function startGame(THREE) {
   function update(dt) {
     const p=player, down=(...codes)=>codes.some(code=>keys.has(code));
     p.yaw+=(Number(down('ArrowRight'))-Number(down('ArrowLeft')))*1.9*dt;
-    const forward=Number(down('KeyW','ArrowUp'))-Number(down('KeyS','ArrowDown'));
-    const side=Number(down('KeyD'))-Number(down('KeyA'));
-    const guarding=rightButton||down('KeyQ');
+    const forward=Number(down('KeyW','ArrowUp'))-Number(down('KeyS','ArrowDown'))-touch.y;
+    const side=Number(down('KeyD'))-Number(down('KeyA'))+touch.x;
+    const guarding=rightButton||touch.guard!==null||down('KeyQ');
     p.guard=p.weapon==='sword'&&guarding&&p.attack===0;
     const aimTarget=p.weapon==='shotgun'&&guarding&&!p.reload?1:0;
     p.aim+=(aimTarget-p.aim)*Math.min(1,dt*12);
-    const running=down('ShiftLeft','ShiftRight')&&!p.guard&&p.aim<.25;
+    const running=(down('ShiftLeft','ShiftRight')||Math.hypot(touch.x,touch.y)>.93)&&!p.guard&&p.aim<.25;
     p.running=Boolean(running&&(forward||side));
     p.moving+=(Number(Boolean(forward||side))-p.moving)*Math.min(1,dt*12);
     p.swap=Math.max(0,p.swap-dt);
@@ -797,7 +812,7 @@ function startGame(THREE) {
         p.loaded+=shells;p.reserve-=shells;sound('rack');
       }
     }
-    const speed=(p.guard||p.aim>.25?2.1:running?6.3:3.7)*dt/(Math.hypot(forward,side)||1);
+    const speed=(p.guard||p.aim>.25?2.1:running?6.3:3.7)*dt/Math.max(1,Math.hypot(forward,side));
     move(p,(Math.sin(p.yaw)*forward+Math.cos(p.yaw)*side)*speed,
       (Math.cos(p.yaw)*forward-Math.sin(p.yaw)*side)*speed,.24,p.y);
     const floor=floorAt(p.x,p.z,.23,p.y);
@@ -823,11 +838,18 @@ function startGame(THREE) {
     if(surfGain) surfGain.gain.value=.026+.088*Math.max(0,1-p.z/29);
     const district=p.z<13?'EL MOLL':p.z<37?'LA VILA':'LA PUJADA DEL FAR';
     $('place').firstChild.textContent=district;
-    $('goal').textContent=missionKey?.taken?'Encén el far':missionKey?'Recull la clau del capità':'Troba el capità a la pujada del far';
+    $('goal').textContent=missionKey?.taken?'Encén el far':missionKey?'Recull la clau de la capitana':'Troba la capitana a la pujada del far';
     $('health').textContent='♥ '+p.hp;
     const weaponLabel=p.weapon==='sword'?'1 · Sabre':p.reload?'Recarregant…':'2 · Retallada  '+p.loaded+' / '+p.reserve;
     if($('weapon').textContent!==weaponLabel) $('weapon').textContent=weaponLabel;
     $('aim').textContent=p.weapon==='shotgun'?'⊹':'·';
+    if(touch.enabled) {
+      const shotgun=p.weapon==='shotgun';
+      const attackLabel=shotgun?'Dispara':'Ataca', guardLabel=shotgun?'Apunta':'Bloca';
+      if($('touch-attack').textContent!==attackLabel) $('touch-attack').textContent=attackLabel;
+      if(guardButton.textContent!==guardLabel) guardButton.textContent=guardLabel;
+      $('touch-reload').disabled=!shotgun||p.loaded===2||!p.reserve||p.reload>0;
+    }
     $('hint').textContent=messageTime>0?message:
       ({key:'E · Recull la clau',lighthouse:'E · Obre el far',talk:'E · Parla amb '+(nearVillager()?.name.toLowerCase()||'')}[target]||'');
     $('flash').style.opacity=mode==='play'?p.damage*1.4:0;
@@ -837,11 +859,11 @@ function startGame(THREE) {
     const [offset,frames,fps,loop]=animations[actor.state];
     const tick=Math.floor(actor.phase*fps);
     const index=offset+(loop?tick%frames:Math.min(tick,frames-1));
-    const u=(index%columns)/columns,v=Math.floor(index/columns)/rows;
+    const u=(index%columns+.005)/columns,v=(Math.floor(index/columns)+.004)/rows;
     const width=actor.captain?1.56:1.36,height=actor.captain?2.53:2.16;
     const dx=Math.cos(player.yaw)*width/2,dz=-Math.sin(player.yaw)*width/2;
-    const x=actor.x,z=actor.z,y=(actor.y||0)-height*.095;
-    const w=1/columns,h=1/rows;
+    const x=actor.x,z=actor.z,y=(actor.y||0)-height*(3/spriteHeight);
+    const w=.99/columns,h=.992/rows;
     quad(mesh,[x-dx,y+height,z-dz],[x+dx,y+height,z+dz],[x+dx,y,z+dz],[x-dx,y,z-dz],
       actor.state==='hurt'?[1,.71,.65]:[1,1,1],[[u,v],[u+w,v],[u+w,v+h],[u,v+h]]);
   }
@@ -975,8 +997,9 @@ function startGame(THREE) {
     updateMesh(skyMesh,mesh);
   }
   function render() {
-    const width=Math.max(1,Math.min(920,Math.ceil(canvas.clientWidth*.73)));
-    const height=Math.max(1,Math.round(width*canvas.clientHeight/Math.max(1,canvas.clientWidth)));
+    const cssWidth=Math.max(1,canvas.clientWidth),cssHeight=Math.max(1,canvas.clientHeight);
+    const ratio=Math.min(.82,(touch.enabled?690:920)/Math.max(cssWidth,cssHeight));
+    const width=Math.max(1,Math.round(cssWidth*ratio)),height=Math.max(1,Math.round(cssHeight*ratio));
     if(canvas.width!==width||canvas.height!==height) {
       renderer.setSize(width,height,false);
       blade.width=width;blade.height=height;
