@@ -37,6 +37,7 @@ function startGame(THREE) {
     out vec4 fragColor;
     uniform sampler2D art;
     uniform float layer;
+    uniform vec3 eye;
     uniform vec3 shotLight;
     uniform vec3 lamps[9];
     in vec3 color;
@@ -44,10 +45,16 @@ function startGame(THREE) {
     in float distanceToEye;
     in vec3 surface;
     void main(){
+      if(layer>1.5){
+        vec3 ray=surface-eye;
+        float elevation=atan(ray.y,length(ray.xz));
+        vec3 sky=texture(art,vec2(tex.x,clamp(.71-elevation*1.35,0.,1.))).rgb*color;
+        sky=mix(sky,vec3(.065,.058,.153),smoothstep(.46,.98,elevation));
+        fragColor=vec4(sky,1.);return;
+      }
       vec4 pixel=texture(art,tex);
       if(pixel.a<.45)discard;
       vec3 tone=color*pixel.rgb;
-      if(layer>1.5){ fragColor=vec4(tone,1.); return; }
       if(layer>.5){
         vec3 q=floor(surface*19.);
         float grain=fract(sin(dot(mod(q,vec3(61.)),vec3(3.17,7.17,11.31)))*371.37);
@@ -964,7 +971,7 @@ function startGame(THREE) {
       const ax=player.x+Math.sin(a)*radius,az=player.z+Math.cos(a)*radius;
       const bx=player.x+Math.sin(b)*radius,bz=player.z+Math.cos(b)*radius;
       const u=(i%8)/8,v=(i%8+1)/8;
-      quad(mesh,[ax,46,az],[bx,46,bz],[bx,-15,bz],[ax,-15,az],[.91,.89,1],[[u,0],[v,0],[v,1],[u,1]]);
+      quad(mesh,[ax,1000,az],[bx,1000,bz],[bx,-1000,bz],[ax,-1000,az],[.91,.89,1],[[u,0],[v,0],[v,1],[u,1]]);
     }
     skyMesh.material.uniforms.art.value=skyTexture;
     updateMesh(skyMesh,mesh);
