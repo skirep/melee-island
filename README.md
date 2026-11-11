@@ -2,7 +2,7 @@
 
 [**Juga a GitHub Pages**](https://skirep.github.io/melee-island/)
 
-Aventura de fans en català ambientada a Mêlée Island. Travessa el moll i la vila, recupera la clau del capità i torna a encendre el far. El món combina geometria voxel amb Three.js r187 i personatges 2D pixel art amb animacions per fotogrames. Hi ha vuit adversaris i set veïns amb diàlegs. Pots dur un sabre i una retallada de dos canons.
+Aventura de fans en català ambientada a Mêlée Island. Travessa el moll i la vila, recupera la clau de la capitana i torna a encendre el far. El món combina geometria voxel amb Three.js r187 i personatges 2D il·lustrats amb proporcions realistes amb animacions per fotogrames. Hi ha vuit adversaris i set veïns amb diàlegs. Pots dur un sabre i una retallada de dos canons.
 
 | Control | Acció |
 | --- | --- |
@@ -16,6 +16,8 @@ Aventura de fans en català ambientada a Mêlée Island. Travessa el moll i la v
 | R | Recarregar |
 | E | Parlar, recollir la clau o obrir el far |
 | Esc | Pausa |
+
+En mòbil, el joystick regula la velocitat i el moviment. Arrossega el dit sobre l’escenari per mirar i utilitza els botons per saltar, atacar, apuntar o blocar, canviar d’arma, recarregar i interactuar.
 
 Serveix l’arrel amb `python -m http.server 8000` i obre-la en un navegador d’escriptori amb WebGL 2. El joc funciona sense compilació i carrega Three.js r187 des de jsDelivr. GitHub Pages publica l’arrel de `main`.
 
